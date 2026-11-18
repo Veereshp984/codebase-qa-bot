@@ -29,6 +29,7 @@ def load_vector_store():
     return vector_store
 
 
+
 def retrieve_chunks(
     vector_store,
     query,
@@ -51,15 +52,18 @@ def retrieve_chunks(
             filter=search_filter
         )
 
+        return [(doc, None) for doc in results]
+
     else:
 
-        results = vector_store.similarity_search(
+        results = vector_store.similarity_search_with_score(
             query,
             k=k,
             filter=search_filter
         )
 
-    return results
+        return results
+
 
 
 def main():
@@ -73,21 +77,21 @@ def main():
     query=query,
     k=4,
     language="python",
-    use_mmr=True
+    use_mmr=False
 )
 
     print("\nRetrieved chunks:", len(results))
 
-    for index, doc in enumerate(results, start=1):
+    for index, (doc, score) in enumerate(results, start=1):
 
         print("\n----------------------------")
         print("Result:", index)
+        print("Distance:", score)
         print("Source:", doc.metadata["source"])
         print("Language:", doc.metadata["language"])
         print("Chunk:", doc.metadata["chunk_index"])
         print("Content:")
         print(doc.page_content[:500])
-
 
 if __name__ == "__main__":
     main()
