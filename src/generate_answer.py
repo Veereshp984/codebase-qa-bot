@@ -8,8 +8,8 @@ from langchain_core.messages import SystemMessage, HumanMessage
 
 from src.retrieve import (
     load_vector_store,
-    retrieve_function_by_name,
-    find_function_source
+    retrieve_chunks,
+    get_neighbouring_chunks
 )
 
 load_dotenv()
@@ -34,6 +34,37 @@ Code:
         context.append(chunk_text)
 
     return "\n\n".join(context)
+
+
+def rewrite_question(query, chat_history):
+
+    llm = ChatGroq(
+        model=os.getenv("GROQ_MODEL"),
+        temperature=0
+    )
+
+    prompt = f"""
+You are a question rewriting assistant.
+
+Your task is to rewrite the latest user question
+so that it can be understood independently.
+
+Use the conversation history to understand
+what the user is referring to.
+
+Do not answer the question.
+Only return the rewritten question.
+
+Conversation history:
+{chat_history}
+
+Latest question:
+{query}
+"""
+
+    response = llm.invoke(prompt)
+
+    return response.content.strip()
 
 
 # 2. Generate answer using Groq
@@ -84,72 +115,87 @@ User Question:
 
 
 # 3. Main execution
+
+
 def main():
 
     print("Starting Codebase Q&A Bot...")
 
     vector_store = load_vector_store()
 
-    query = "How does get_my_bookings retrieve booking records using user_id?"
+    # Store the conversation
+    chat_history = []
 
-    print("\nUser Question:", query)
+    while True:
 
-    # Step 1: Extract function name
-    match = re.search(
-        r"\b[a-zA-Z_]\w*_[a-zA-Z_]\w*\b",
-        query
-    )
+        query = input("\nYou: ")
 
-    function_name = match.group(0) if match else None
+        # Exit condition
+        if query.lower() == "quit":
+            print("Chat ended!")
+            break
 
-    if not function_name:
-        print("\nNo function name found in the question.")
-        return
+        # Rewrite question using previous conversation
+        rewritten_query = rewrite_question(
+            query=query,
+            chat_history=chat_history
+        )
 
-    print("\nDetected function:", function_name)
+        print("\nRewritten Question:", rewritten_query)
 
-    # Step 2: Find source file automatically
-    source = find_function_source(
-        vector_store=vector_store,
-        function_name=function_name
-    )
+        # Retrieve relevant chunks
+        retrieved_chunks = retrieve_chunks(
+            vector_store=vector_store,
+            query=rewritten_query,
+            k=6,
+            language="python",
+            use_mmr=False
+        )
+        
+        print("\nRetrieved chunks for follow-up:")
 
-    if not source:
-        print("\nFunction not found in the repository.")
-        return
+        for doc, score in retrieved_chunks:
+            print("\nSource:", doc.metadata["source"])
+            print("Chunk:", doc.metadata["chunk_index"])
+            print("Content:", doc.page_content[:300])
 
-    print("\nDiscovered source:", source)
+        # Expand neighbouring chunks
+        expanded_chunks = get_neighbouring_chunks(
+            vector_store=vector_store,
+            retrieved_chunks=retrieved_chunks,
+            window=1
+        )
 
-    # Step 3: Retrieve complete function
-    function_chunks = retrieve_function_by_name(
-        vector_store=vector_store,
-        function_name=function_name,
-        source=source
-    )
+        # Generate answer using original question
+        answer = generate_answer(
+            query,
+            [(doc, None) for doc in expanded_chunks]
+        )
 
-    if not function_chunks:
-        print("\nCould not retrieve function implementation.")
-        return
+        print("\nBot:", answer)
 
-    print(
-        "\nFunction chunks retrieved:",
-        len(function_chunks)
-    )
+        # Display unique source files
+        source_paths = sorted({
+            doc.metadata["source"]
+            for doc in expanded_chunks
+        })
 
-    for doc in function_chunks:
-        print("Chunk:", doc.metadata["chunk_index"])
+        print("\nSources:")
+        for source in source_paths:
+            print("-", source)
 
-    # Step 4: Generate answer
-    answer = generate_answer(
-        query,
-        [(doc, None) for doc in function_chunks]
-    )
+        # Save conversation
+        chat_history.append({
+            "role": "user",
+            "content": query
+        })
 
-    print("\n==============================")
-    print("BOT ANSWER")
-    print("==============================")
-    print(answer)
+        chat_history.append({
+            "role": "assistant",
+            "content": answer
+        })
 
 
 if __name__ == "__main__":
     main()
+

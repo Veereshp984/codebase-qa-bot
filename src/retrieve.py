@@ -72,19 +72,20 @@ def retrieve_chunks(
 
 
 # 4. Retrieve neighbouring chunks
-def get_neighbouring_chunks(
-    vector_store,
-    retrieved_chunks,
-    window=1
-):
+def get_neighbouring_chunks(vector_store, retrieved_chunks, window=1):
 
-    expanded_chunks = {}
+    expanded_by_source = {}
 
     for doc, score in retrieved_chunks:
 
         source = doc.metadata["source"]
         chunk_index = doc.metadata["chunk_index"]
 
+        # Create a group for this file if it doesn't exist
+        if source not in expanded_by_source:
+            expanded_by_source[source] = {}
+
+        # Get neighbouring chunks
         for offset in range(-window, window + 1):
 
             neighbour_index = chunk_index + offset
@@ -102,18 +103,27 @@ def get_neighbouring_chunks(
                 include=["documents", "metadatas"]
             )
 
+            # Store chunks using their index as the key
             for index, metadata in enumerate(results["metadatas"]):
 
-                key = (source, metadata["chunk_index"])
+                chunk_index = metadata["chunk_index"]
 
-                expanded_chunks[key] = Document(
+                expanded_by_source[source][chunk_index] = Document(
                     page_content=results["documents"][index],
                     metadata=metadata
                 )
 
-    return list(expanded_chunks.values())
+    # Combine groups while maintaining chunk order
+    final_chunks = []
 
+    for source, chunks in expanded_by_source.items():
 
+        sorted_chunks = sorted(chunks.items())
+
+        for chunk_index, doc in sorted_chunks:
+            final_chunks.append(doc)
+
+    return final_chunks
 
 def find_function_source(vector_store, function_name):
 
