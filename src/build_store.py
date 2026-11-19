@@ -1,10 +1,16 @@
+
 from pathlib import Path
 import shutil
+
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 
-from load_files import load_files, convert_to_documents
-from split_code import split_documents
+from src.load_files import load_files, convert_to_documents
+from src.split_code import split_documents
+
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DB_DIR = PROJECT_ROOT / "db"
 
 
 def generate_chunk_ids(chunks):
@@ -16,46 +22,45 @@ def generate_chunk_ids(chunks):
         chunk_id = f"{source}_{chunk_index}"
 
         yield chunk_id
-        
-        
-        
+
 
 def get_embedding_model():
-    embedding_model = HuggingFaceEmbeddings(
+
+    return HuggingFaceEmbeddings(
         model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
 
-    return embedding_model
 
-
-
-def create_vector_store(chunks, repo_name, rebuild=False):
+def create_vector_store(
+    chunks,
+    repo_id,
+    rebuild=False
+):
 
     embedding_model = get_embedding_model()
 
-    db_path = Path("../db") / repo_name
+    db_path = DB_DIR / repo_id
 
-    # Delete existing database if rebuild is True
     if rebuild and db_path.exists():
         shutil.rmtree(db_path)
         print("Existing database deleted!")
 
-    # Load existing database
     if db_path.exists():
+
         print("Existing database found. Loading it...")
 
         vector_store = Chroma(
-            collection_name=repo_name,
+            collection_name=repo_id,
             embedding_function=embedding_model,
             persist_directory=str(db_path)
         )
 
-    # Create new database
     else:
+
         print("Creating new vector database...")
 
         vector_store = Chroma(
-            collection_name=repo_name,
+            collection_name=repo_id,
             embedding_function=embedding_model,
             persist_directory=str(db_path),
             collection_metadata={"hnsw:space": "cosine"}
@@ -71,49 +76,61 @@ def create_vector_store(chunks, repo_name, rebuild=False):
     return vector_store
 
 
+def process_repository(repo_path, repo_id, rebuild=False):
 
-def main():
+    repo_path = Path(repo_path)
 
-    repo_name = "ChargeFlow-EV-Charging-Management-Platform"
+    if not repo_path.exists():
+        raise FileNotFoundError(
+            f"Repository not found: {repo_path}"
+        )
 
-    repo_path = Path("../repos") / repo_name
+    print("Processing repository:", repo_id)
 
     # 1. Load repository files
     files = load_files(repo_path)
 
+    if not files:
+        raise ValueError("No supported source files found.")
+
     # 2. Convert files into Documents
     documents = convert_to_documents(files)
 
-    # 3. Split Documents into chunks
+    # 3. Split documents into chunks
     chunks = split_documents(documents)
 
     print("Total files:", len(files))
     print("Total chunks:", len(chunks))
 
-    # 4. Create ChromaDB vector store
+    # 4. Create vector store
     vector_store = create_vector_store(
-    chunks,
-    repo_name,
-    rebuild=False
-)
+        chunks=chunks,
+        repo_id=repo_id,
+        rebuild=rebuild
+    )
 
-    
     print("Vector store created successfully!")
-    
     print("Total stored chunks:", vector_store._collection.count())
-    
-    results = vector_store.similarity_search_with_score(
-    "How does the booking system work?",
-    k=3
-)
 
-    for doc, score in results:
-        print("\nScore:", score)
-        print("Source:", doc.metadata["source"])
-        print("Chunk:", doc.metadata["chunk_index"])
-        print("Content:", doc.page_content[:300])
+    return vector_store
 
-    
 
 if __name__ == "__main__":
-    main()
+
+    repo_name = "ChargeFlow-EV-Charging-Management-Platform"
+    owner = "Veereshp984"
+
+    repo_id = f"{owner}_{repo_name}"
+
+    repo_path = (
+        PROJECT_ROOT
+        / "repos"
+        / owner
+        / repo_name
+    )
+
+    process_repository(
+        repo_path=repo_path,
+        repo_id=repo_id,
+        rebuild=True
+    )

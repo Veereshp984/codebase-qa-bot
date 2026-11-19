@@ -7,7 +7,8 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 
 
-REPO_NAME = "ChargeFlow-EV-Charging-Management-Platform"
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+DB_DIR = PROJECT_ROOT / "db"
 
 
 # 1. Load embedding model
@@ -18,21 +19,30 @@ def get_embedding_model():
     )
 
 
-# 2. Load existing vector database
-def load_vector_store():
+# 2. Load the selected repository's vector database
+
+def load_vector_store(repo_name):
 
     embedding_model = get_embedding_model()
 
     PROJECT_ROOT = Path(__file__).resolve().parent.parent
-    db_path = PROJECT_ROOT / "db" / REPO_NAME
+
+    db_path = PROJECT_ROOT / "db" / repo_name
+
+    if not db_path.exists():
+        raise FileNotFoundError(
+            f"Vector database not found: {repo_name}"
+        )
 
     vector_store = Chroma(
-        collection_name=REPO_NAME,
+        collection_name=repo_name,
         embedding_function=embedding_model,
         persist_directory=str(db_path)
     )
 
     return vector_store
+
+
 
 
 # 3. Retrieve relevant chunks using semantic search
@@ -72,7 +82,11 @@ def retrieve_chunks(
 
 
 # 4. Retrieve neighbouring chunks
-def get_neighbouring_chunks(vector_store, retrieved_chunks, window=1):
+def get_neighbouring_chunks(
+    vector_store,
+    retrieved_chunks,
+    window=1
+):
 
     expanded_by_source = {}
 
@@ -81,11 +95,9 @@ def get_neighbouring_chunks(vector_store, retrieved_chunks, window=1):
         source = doc.metadata["source"]
         chunk_index = doc.metadata["chunk_index"]
 
-        # Create a group for this file if it doesn't exist
         if source not in expanded_by_source:
             expanded_by_source[source] = {}
 
-        # Get neighbouring chunks
         for offset in range(-window, window + 1):
 
             neighbour_index = chunk_index + offset
@@ -103,17 +115,15 @@ def get_neighbouring_chunks(vector_store, retrieved_chunks, window=1):
                 include=["documents", "metadatas"]
             )
 
-            # Store chunks using their index as the key
             for index, metadata in enumerate(results["metadatas"]):
 
-                chunk_index = metadata["chunk_index"]
+                current_index = metadata["chunk_index"]
 
-                expanded_by_source[source][chunk_index] = Document(
+                expanded_by_source[source][current_index] = Document(
                     page_content=results["documents"][index],
                     metadata=metadata
                 )
 
-    # Combine groups while maintaining chunk order
     final_chunks = []
 
     for source, chunks in expanded_by_source.items():
@@ -125,6 +135,8 @@ def get_neighbouring_chunks(vector_store, retrieved_chunks, window=1):
 
     return final_chunks
 
+
+# 5. Find the source file containing a function
 def find_function_source(vector_store, function_name):
 
     results = vector_store.get(
@@ -145,7 +157,7 @@ def find_function_source(vector_store, function_name):
     return None
 
 
-# 5. Retrieve a complete function by its name
+# 6. Retrieve a complete function by its name
 def retrieve_function_by_name(
     vector_store,
     function_name,
@@ -157,7 +169,6 @@ def retrieve_function_by_name(
         include=["documents", "metadatas"]
     )
 
-    # Sort chunks in their original order
     chunks = sorted(
         zip(results["documents"], results["metadatas"]),
         key=lambda item: item[1]["chunk_index"]
@@ -168,7 +179,6 @@ def retrieve_function_by_name(
 
     for content, metadata in chunks:
 
-        # Find function definitions in the current chunk
         function_matches = re.findall(
             r"(?m)^\s*def\s+(\w+)\s*\(",
             content
@@ -176,11 +186,9 @@ def retrieve_function_by_name(
 
         if function_matches:
 
-            # Target function found
             if function_name in function_matches:
                 found_function = True
 
-            # Another function starts
             elif found_function:
                 break
 
@@ -196,12 +204,14 @@ def retrieve_function_by_name(
     return function_chunks
 
 
-# 6. Test retrieval independently
+# 7. Test retrieval independently
 def main():
 
-    vector_store = load_vector_store()
+    repo_id = "Veereshp984_ChargeFlow-EV-Charging-Management-Platform"
 
-    query = "get_my_bookings"
+    vector_store = load_vector_store(repo_id)
+
+    query = "How does the booking system work?"
 
     retrieved_chunks = retrieve_chunks(
         vector_store=vector_store,
@@ -217,7 +227,8 @@ def main():
         window=1
     )
 
-    print("\nOriginal chunks:", len(retrieved_chunks))
+    print("\nRepository:", repo_id)
+    print("Original chunks:", len(retrieved_chunks))
     print("Expanded chunks:", len(expanded_chunks))
 
     for index, doc in enumerate(expanded_chunks, start=1):
