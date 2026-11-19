@@ -1,6 +1,8 @@
 
 from pathlib import Path
+import re
 
+from langchain_core.documents import Document
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_chroma import Chroma
 
@@ -8,17 +10,21 @@ from langchain_chroma import Chroma
 REPO_NAME = "ChargeFlow-EV-Charging-Management-Platform"
 
 
+# 1. Load embedding model
 def get_embedding_model():
+
     return HuggingFaceEmbeddings(
         model_name="sentence-transformers/all-MiniLM-L6-v2"
     )
 
 
+# 2. Load existing vector database
 def load_vector_store():
 
     embedding_model = get_embedding_model()
 
-    db_path = Path("../db") / REPO_NAME
+    PROJECT_ROOT = Path(__file__).resolve().parent.parent
+    db_path = PROJECT_ROOT / "db" / REPO_NAME
 
     vector_store = Chroma(
         collection_name=REPO_NAME,
@@ -29,7 +35,7 @@ def load_vector_store():
     return vector_store
 
 
-
+# 3. Retrieve relevant chunks using semantic search
 def retrieve_chunks(
     vector_store,
     query,
@@ -65,33 +71,155 @@ def retrieve_chunks(
         return results
 
 
+# 4. Retrieve neighbouring chunks
+def get_neighbouring_chunks(
+    vector_store,
+    retrieved_chunks,
+    window=1
+):
 
+    expanded_chunks = {}
+
+    for doc, score in retrieved_chunks:
+
+        source = doc.metadata["source"]
+        chunk_index = doc.metadata["chunk_index"]
+
+        for offset in range(-window, window + 1):
+
+            neighbour_index = chunk_index + offset
+
+            if neighbour_index < 0:
+                continue
+
+            results = vector_store.get(
+                where={
+                    "$and": [
+                        {"source": {"$eq": source}},
+                        {"chunk_index": {"$eq": neighbour_index}}
+                    ]
+                },
+                include=["documents", "metadatas"]
+            )
+
+            for index, metadata in enumerate(results["metadatas"]):
+
+                key = (source, metadata["chunk_index"])
+
+                expanded_chunks[key] = Document(
+                    page_content=results["documents"][index],
+                    metadata=metadata
+                )
+
+    return list(expanded_chunks.values())
+
+
+
+def find_function_source(vector_store, function_name):
+
+    results = vector_store.get(
+        where_document={
+            "$contains": f"def {function_name}"
+        },
+        include=["documents", "metadatas"]
+    )
+
+    for index, content in enumerate(results["documents"]):
+
+        if f"def {function_name}" in content:
+
+            source = results["metadatas"][index]["source"]
+
+            return source
+
+    return None
+
+
+# 5. Retrieve a complete function by its name
+def retrieve_function_by_name(
+    vector_store,
+    function_name,
+    source
+):
+
+    results = vector_store.get(
+        where={"source": {"$eq": source}},
+        include=["documents", "metadatas"]
+    )
+
+    # Sort chunks in their original order
+    chunks = sorted(
+        zip(results["documents"], results["metadatas"]),
+        key=lambda item: item[1]["chunk_index"]
+    )
+
+    function_chunks = []
+    found_function = False
+
+    for content, metadata in chunks:
+
+        # Find function definitions in the current chunk
+        function_matches = re.findall(
+            r"(?m)^\s*def\s+(\w+)\s*\(",
+            content
+        )
+
+        if function_matches:
+
+            # Target function found
+            if function_name in function_matches:
+                found_function = True
+
+            # Another function starts
+            elif found_function:
+                break
+
+        if found_function:
+
+            function_chunks.append(
+                Document(
+                    page_content=content,
+                    metadata=metadata
+                )
+            )
+
+    return function_chunks
+
+
+# 6. Test retrieval independently
 def main():
 
     vector_store = load_vector_store()
 
-    query = "How does the booking system work?"
+    query = "get_my_bookings"
 
-    results = retrieve_chunks(
-    vector_store=vector_store,
-    query=query,
-    k=4,
-    language="python",
-    use_mmr=False
-)
+    retrieved_chunks = retrieve_chunks(
+        vector_store=vector_store,
+        query=query,
+        k=6,
+        language="python",
+        use_mmr=False
+    )
 
-    print("\nRetrieved chunks:", len(results))
+    expanded_chunks = get_neighbouring_chunks(
+        vector_store=vector_store,
+        retrieved_chunks=retrieved_chunks,
+        window=1
+    )
 
-    for index, (doc, score) in enumerate(results, start=1):
+    print("\nOriginal chunks:", len(retrieved_chunks))
+    print("Expanded chunks:", len(expanded_chunks))
+
+    for index, doc in enumerate(expanded_chunks, start=1):
 
         print("\n----------------------------")
         print("Result:", index)
-        print("Distance:", score)
         print("Source:", doc.metadata["source"])
         print("Language:", doc.metadata["language"])
         print("Chunk:", doc.metadata["chunk_index"])
         print("Content:")
-        print(doc.page_content[:500])
+        print(doc.page_content)
+
 
 if __name__ == "__main__":
     main()

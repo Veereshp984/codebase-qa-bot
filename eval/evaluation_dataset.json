@@ -1,0 +1,149 @@
+
+[
+  {
+    "id": 1,
+    "question": "How does the application create a new booking?",
+    "expected_sources": [
+      "backend/app/routes/booking_routes.py",
+      "backend/app/services/booking_service.py"
+    ]
+  },
+  {
+    "id": 2,
+    "question": "How does the application send a booking confirmation email?",
+    "expected_sources": [
+      "backend/app/services/email_service.py"
+    ]
+  },
+  {
+    "id": 3,
+    "question": "How does the application handle booking cancellation emails?",
+    "expected_sources": [
+      "backend/app/services/email_service.py"
+    ]
+  },
+  {
+    "id": 4,
+    "question": "How does the application retrieve a user's bookings?",
+    "expected_sources": [
+      "backend/app/services/booking_service.py"
+    ]
+  },
+  {
+    "id": 5,
+    "question": "How does the application retrieve the details of a particular booking?",
+    "expected_sources": [
+      "backend/app/services/booking_service.py"
+    ]
+  },
+  {
+    "id": 6,
+    "question": "How does the application check whether a user already has an existing booking?",
+    "expected_sources": [
+      "backend/app/routes/booking_routes.py"
+    ]
+  },
+  {
+  "id": 7,
+  "question": "How does the application validate booking start and end times?",
+  "expected_sources": [
+    "backend/app/services/booking_service.py",
+    "backend/app/routes/booking_routes.py"
+  ]
+},
+  {
+    "id": 8,
+    "question": "How does the application save a new booking into the database?",
+    "expected_sources": [
+      "backend/app/routes/booking_routes.py"
+    ]
+  },
+  {
+    "id": 9,
+    "question": "What information is included in a booking confirmation email?",
+    "expected_sources": [
+      "backend/app/services/email_service.py"
+    ]
+  },
+  {
+    "id": 10,
+    "question": "What information is included in a booking cancellation email?",
+    "expected_sources": [
+      "backend/app/services/email_service.py"
+    ]
+  },
+  {
+    "id": 11,
+    "question": "How does the AI assistant handle booking-related user queries?",
+    "expected_sources": [
+      "backend/app/services/ai_service.py"
+    ]
+  },
+  {
+    "id": 12,
+    "question": "What information is required before the AI assistant can create a booking?",
+    "expected_sources": [
+      "backend/app/services/ai_service.py"
+    ]
+  },
+  {
+    "id": 13,
+    "question": "What rules does the AI assistant follow when creating a booking?",
+    "expected_sources": [
+      "backend/app/services/ai_service.py"
+    ]
+  },
+  {
+    "id": 14,
+    "question": "How does the AI assistant handle booking modification requests?",
+    "expected_sources": [
+      "backend/app/services/ai_service.py"
+    ]
+  },
+  {
+    "id": 15,
+    "question": "What booking features are available in ChargeFlow?",
+    "expected_sources": [
+      "README.md"
+    ]
+  },
+  {
+    "id": 16,
+    "question": "How can users discover nearby EV charging stations?",
+    "expected_sources": [
+      "README.md"
+    ]
+  },
+  {
+    "id": 17,
+    "question": "How does ChargeFlow handle charger availability?",
+    "expected_sources": [
+      "README.md"
+    ]
+  },
+  {
+    "id": 18,
+    "question": "What features are available for managing charging stations and chargers?",
+    "expected_sources": [
+      "README.md"
+    ]
+  },
+  {
+  "id": 19,
+  "question": "How can users view their booking history and upcoming bookings?",
+  "expected_sources": [
+    "backend/app/routes/booking_routes.py",
+    "backend/app/services/booking_service.py",
+    "README.md"
+  ]
+},
+  {
+    "id": 20,
+    "question": "What happens when a user wants to cancel or modify a booking?",
+    "expected_sources": [
+      "README.md",
+      "backend/app/services/ai_service.py",
+      "backend/app/services/email_service.py"
+    ]
+  }
+]
