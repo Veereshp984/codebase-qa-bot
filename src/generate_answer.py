@@ -1,13 +1,11 @@
 
 import os
-import re
 
 from dotenv import load_dotenv
 from langchain_groq import ChatGroq
 from langchain_core.messages import SystemMessage, HumanMessage
 
-from src.retrieve import (
-    load_vector_store,
+from src.postgres_store import (
     retrieve_chunks,
     get_neighbouring_chunks
 )
@@ -36,6 +34,7 @@ Code:
     return "\n\n".join(context)
 
 
+# 2. Rewrite follow-up questions
 def rewrite_question(query, chat_history):
 
     llm = ChatGroq(
@@ -68,7 +67,7 @@ Latest question:
     return response.content.strip()
 
 
-# 2. Generate answer using Groq
+# 3. Generate answer using Groq
 def generate_answer(query, retrieved_chunks):
 
     context = format_context(retrieved_chunks)
@@ -95,7 +94,6 @@ Rules:
 10. Do not repeat the same information.
 11. Include code snippets only when they help explain the answer.
 12. For simple questions, answer in 3-5 sentences.
-
 13. Never present README descriptions or test cases as actual implementation.
 14. Clearly distinguish implementation code, tests, and documentation.
 15. Do not claim a function performs an operation unless the retrieved
@@ -135,14 +133,10 @@ User Question:
     return response.content
 
 
-# 3. Main execution
-
-
+# 4. Main execution using PostgreSQL
 def main(repo_name):
 
     print("Starting Codebase Q&A Bot...")
-
-    vector_store = load_vector_store(repo_name)
 
     # Store the conversation
     chat_history = []
@@ -164,33 +158,42 @@ def main(repo_name):
 
         print("\nRewritten Question:", rewritten_query)
 
-        # Retrieve relevant chunks
+        # Retrieve relevant chunks from PostgreSQL
         retrieved_chunks = retrieve_chunks(
-            vector_store=vector_store,
             query=rewritten_query,
+            repo_id=repo_name,
             k=6,
-            language="python",
-            use_mmr=False
+            language="python"
         )
-        
+
         print("\nRetrieved chunks for follow-up:")
 
-        for doc, score in retrieved_chunks:
-            print("\nSource:", doc.metadata["source"])
-            print("Chunk:", doc.metadata["chunk_index"])
-            print("Content:", doc.page_content[:300])
+        for content, metadata, distance in retrieved_chunks:
+            print("\nSource:", metadata["source"])
+            print("Chunk:", metadata["chunk_index"])
+            print("Distance:", distance)
+            print("Content:", content[:300])
+
+        if not retrieved_chunks:
+            print("\nBot: I don't have enough information in the retrieved code.")
+            continue
 
         # Expand neighbouring chunks
         expanded_chunks = get_neighbouring_chunks(
-            vector_store=vector_store,
             retrieved_chunks=retrieved_chunks,
+            repo_id=repo_name,
             window=1
         )
 
+        # Convert Documents into the format expected by format_context
+        formatted_chunks = [
+            (doc, None) for doc in expanded_chunks
+        ]
+
         # Generate answer using original question
         answer = generate_answer(
-            query,
-            [(doc, None) for doc in expanded_chunks]
+            query=query,
+            retrieved_chunks=formatted_chunks
         )
 
         print("\nBot:", answer)

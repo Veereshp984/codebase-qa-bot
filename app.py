@@ -4,12 +4,16 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from src.clone_repo import clone_repo
-from src.build_store import process_repository
-from src.retrieve import (
-    load_vector_store,
+from src.load_files import load_files, convert_to_documents
+from src.split_code import split_documents
+
+from src.postgres_store import (
+    store_chunks,
+    get_chunk_count,
     retrieve_chunks,
     get_neighbouring_chunks
 )
+
 from src.generate_answer import (
     rewrite_question,
     generate_answer
@@ -86,7 +90,6 @@ div[data-testid="stChatMessage"] {
 
 defaults = {
     "repo_id": None,
-    "vector_store": None,
     "chat_history": [],
     "repo_path": None,
     "latest_chunks": [],
@@ -94,7 +97,6 @@ defaults = {
 }
 
 for key, value in defaults.items():
-
     if key not in st.session_state:
         st.session_state[key] = value
 
@@ -171,6 +173,7 @@ with st.sidebar:
                     expanded=True
                 ) as status:
 
+                    # Clone repository
                     st.write("Cloning repository...")
 
                     repo_path = clone_repo(repo_url)
@@ -178,17 +181,71 @@ with st.sidebar:
                     if repo_path is None:
                         raise RuntimeError("Repository cloning failed.")
 
-                    st.write("Indexing repository files...")
+                    # Check whether repository is already indexed
+                    st.write("Checking PostgreSQL database...")
 
-                    process_repository(
-                        repo_path=repo_path,
-                        repo_id=repo_id,
-                        rebuild=False
-                    )
+                    existing_count = get_chunk_count(repo_id)
 
-                    st.write("Loading vector database...")
+                    if existing_count > 0:
 
-                    vector_store = load_vector_store(repo_id)
+                        st.write(
+                            f"Repository already indexed. "
+                            f"Found {existing_count} chunks."
+                        )
+
+                    else:
+
+                        # Load repository files
+                        st.write("Loading repository files...")
+
+                        files = load_files(repo_path)
+
+                        if not files:
+                            raise ValueError(
+                                "No supported source files found."
+                            )
+
+                        # Convert files into LangChain documents
+                        documents = convert_to_documents(files)
+
+                        # Split documents into chunks
+                        st.write("Splitting repository files...")
+
+                        chunks = split_documents(documents)
+
+                        if not chunks:
+                            raise ValueError(
+                                "No chunks generated from repository."
+                            )
+
+                        st.write(
+                            f"Generated {len(chunks)} chunks."
+                        )
+
+                        # Store chunks in PostgreSQL
+                        st.write(
+                            "Generating embeddings and storing in PostgreSQL..."
+                        )
+
+                        store_chunks(
+                            chunks=chunks,
+                            repo_id=repo_id,
+                            replace_repo=True
+                        )
+
+                        # Verify storage
+                        stored_count = get_chunk_count(repo_id)
+
+                        if stored_count != len(chunks):
+                            raise RuntimeError(
+                                f"Storage verification failed. "
+                                f"Expected {len(chunks)}, "
+                                f"found {stored_count}."
+                            )
+
+                        st.write(
+                            f"Successfully indexed {stored_count} chunks."
+                        )
 
                     status.update(
                         label="Repository connected successfully!",
@@ -196,8 +253,8 @@ with st.sidebar:
                         expanded=False
                     )
 
+                # Update session state
                 st.session_state.repo_id = repo_id
-                st.session_state.vector_store = vector_store
                 st.session_state.repo_path = str(repo_path)
 
                 st.session_state.chat_history = []
@@ -228,6 +285,13 @@ with st.sidebar:
             unsafe_allow_html=True
         )
 
+        # Show indexed chunk count
+        try:
+            count = get_chunk_count(st.session_state.repo_id)
+            st.caption(f"Indexed chunks: {count}")
+        except Exception:
+            st.caption("Could not retrieve chunk count.")
+
     else:
 
         st.info("No repository connected.")
@@ -257,7 +321,7 @@ with st.sidebar:
 
     st.divider()
 
-    st.caption("Powered by LangChain, ChromaDB and Groq")
+    st.caption("Powered by LangChain, PostgreSQL, pgvector and Groq")
 
 
 # --------------------------------------------------
@@ -300,7 +364,7 @@ with chat_col:
         unsafe_allow_html=True
     )
 
-    if st.session_state.vector_store is None:
+    if st.session_state.repo_id is None:
 
         st.info(
             "Connect a GitHub repository from the sidebar to start chatting."
@@ -341,6 +405,8 @@ with chat_col:
 
             try:
 
+                # Rewrite follow-up questions
+
                 with st.spinner("Understanding your question..."):
 
                     rewritten_query = rewrite_question(
@@ -348,21 +414,26 @@ with chat_col:
                         chat_history=st.session_state.chat_history[:-1]
                     )
 
+                # Retrieve relevant chunks from PostgreSQL
+
                 with st.spinner("Searching the codebase..."):
 
                     retrieved_chunks = retrieve_chunks(
-                        vector_store=st.session_state.vector_store,
                         query=rewritten_query,
+                        repo_id=st.session_state.repo_id,
                         k=6,
-                        language=None,
-                        use_mmr=False
+                        language=None
                     )
 
+                    # Expand retrieved chunks with neighbouring chunks
+
                     expanded_chunks = get_neighbouring_chunks(
-                        vector_store=st.session_state.vector_store,
                         retrieved_chunks=retrieved_chunks,
+                        repo_id=st.session_state.repo_id,
                         window=1
                     )
+
+                # Generate grounded answer using Groq
 
                 with st.spinner("Generating answer..."):
 
@@ -374,10 +445,14 @@ with chat_col:
                         ]
                     )
 
+                # Collect source paths
+
                 source_paths = sorted({
                     doc.metadata["source"]
                     for doc in expanded_chunks
                 })
+
+                # Store latest retrieved chunks
 
                 st.session_state.latest_chunks = [
                     {
@@ -389,6 +464,8 @@ with chat_col:
                 ]
 
                 st.session_state.latest_sources = source_paths
+
+                # Save assistant response
 
                 st.session_state.chat_history.append({
                     "role": "assistant",

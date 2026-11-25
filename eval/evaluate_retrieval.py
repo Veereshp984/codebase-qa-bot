@@ -1,12 +1,15 @@
+
 import json
 from pathlib import Path
 
-from src.retrieve import load_vector_store
+from src.postgres_store import retrieve_chunks
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 DATASET_PATH = PROJECT_ROOT / "eval" / "evaluation_dataset.json"
+
+REPO_ID = "Veereshp984_ChargeFlow-EV-Charging-Management-Platform"
 
 
 def load_evaluation_dataset():
@@ -26,8 +29,6 @@ def evaluate_retrieval():
 
     dataset = load_evaluation_dataset()
 
-    vector_store = load_vector_store()
-
     total_questions = len(dataset)
     successful_hits = 0
 
@@ -36,23 +37,26 @@ def evaluate_retrieval():
         question = item["question"]
         expected_sources = item["expected_sources"]
 
-        results = vector_store.similarity_search(
-            question,
+        # Retrieve top 3 chunks from PostgreSQL
+        results = retrieve_chunks(
+            query=question,
+            repo_id=REPO_ID,
             k=3
         )
-        
+
         if item["id"] in [7, 19]:
 
             print("\n========== DEBUGGING MISS ==========")
 
-            for doc in results:
-                print("\nSource:", doc.metadata["source"])
-                print("Chunk:", doc.metadata["chunk_index"])
-                print(doc.page_content)
+            for content, metadata, distance in results:
+                print("\nSource:", metadata["source"])
+                print("Chunk:", metadata["chunk_index"])
+                print("Distance:", distance)
+                print(content)
 
         retrieved_sources = [
-            normalize_source(doc.metadata["source"])
-            for doc in results
+            normalize_source(metadata["source"])
+            for content, metadata, distance in results
         ]
 
         expected_found = any(
@@ -73,10 +77,10 @@ def evaluate_retrieval():
         print("Retrieved sources:", retrieved_sources)
         print("Result:", "HIT" if expected_found else "MISS")
 
-    hit_rate = successful_hits / total_questions
+    hit_rate = successful_hits / total_questions if total_questions else 0
 
     print("\n================================")
-    print("RETRIEVAL EVALUATION SUMMARY")
+    print("POSTGRESQL RETRIEVAL EVALUATION")
     print("================================")
     print("Total questions:", total_questions)
     print("Successful hits:", successful_hits)

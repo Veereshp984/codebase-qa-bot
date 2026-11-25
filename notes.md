@@ -35,7 +35,7 @@ I will evaluate retrieval quality later.
 ### Implementation
 - Used HuggingFace all-MiniLM-L6-v2 for embeddings.
 - Generated 384-dimensional embeddings.
-- Stored 598 code chunks in ChromaDB.
+- Stored 598 code chunks in PostgreSQL using pgvector.
 - Configured cosine distance for vector comparison.
 - Implemented persistent database storage.
 - Added unique IDs for chunks.
